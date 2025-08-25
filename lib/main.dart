@@ -1,33 +1,38 @@
 import 'package:flutter/material.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'models/note.dart';
+import 'widgets/note_card.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Initialize Hive and open box
   await Hive.initFlutter();
-  await Hive.openBox<String>('notes');
+  Hive.registerAdapter(NoteAdapter());
 
-  // Load saved notes from secure storage
-  final store = FlutterSecureStorage();
-  final box = Hive.box<String>('notes');
+  await Hive.openBox<Note>('notes');
+
+  // Restore notes from secure storage (first run only)
+  final store = const FlutterSecureStorage();
+  final box = Hive.box<Note>('notes');
   final saved = await store.read(key: 'notes');
+
   if (saved != null && box.isEmpty) {
-    for (var note in saved.split('||')) {
-      if (note.isNotEmpty) box.add(note);
+    for (var noteStr in saved.split('||')) {
+      if (noteStr.isNotEmpty) {
+        box.add(Note.fromString(noteStr));
+      }
     }
   }
 
   runApp(const MyApp());
 }
 
-// Add 'const' and key to follow Flutter best practices
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
 
   @override
-  Widget build(BuildContext ctx) {
+  Widget build(BuildContext context) {
     return const MaterialApp(
       debugShowCheckedModeBanner: false,
       home: NotePage(),
@@ -35,7 +40,6 @@ class MyApp extends StatelessWidget {
   }
 }
 
-// Add 'const' and key
 class NotePage extends StatefulWidget {
   const NotePage({super.key});
 
@@ -45,42 +49,42 @@ class NotePage extends StatefulWidget {
 
 class _NotePageState extends State<NotePage> {
   final TextEditingController controller = TextEditingController();
-  final FlutterSecureStorage store = FlutterSecureStorage();
-  late Box<String> notesBox;
+  final FlutterSecureStorage store = const FlutterSecureStorage();
+  late Box<Note> notesBox;
 
   @override
   void initState() {
     super.initState();
-    notesBox = Hive.box<String>('notes');
+    notesBox = Hive.box<Note>('notes');
   }
 
-  // Save all notes to secure storage
+  // Save notes to secure storage
   Future<void> saveNotes() async {
-    final allNotes = notesBox.values.join('||');
+    final allNotes = notesBox.values.map((n) => n.toString()).join('||');
     await store.write(key: 'notes', value: allNotes);
   }
 
   @override
-  Widget build(BuildContext ctx) {
+  Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text("Notes")),
       body: ValueListenableBuilder(
         valueListenable: notesBox.listenable(),
-        builder: (_, Box<String> box, __) {
+        builder: (_, Box<Note> box, __) {
+          if (box.isEmpty) {
+            return const Center(child: Text("No notes yet. Add one below!"));
+          }
           return ListView.builder(
             itemCount: box.length,
             itemBuilder: (_, i) {
               final key = box.keyAt(i);
-              final note = box.get(key);
-              return ListTile(
-                title: Text(note ?? ""),
-                trailing: IconButton(
-                  icon: const Icon(Icons.delete),
-                  onPressed: () async {
-                    box.delete(key);
-                    await saveNotes();
-                  },
-                ),
+              final note = box.get(key)!;
+              return NoteCard(
+                note: note,
+                onDelete: () async {
+                  box.delete(key);
+                  await saveNotes();
+                },
               );
             },
           );
@@ -93,18 +97,28 @@ class _NotePageState extends State<NotePage> {
             Expanded(
               child: TextField(
                 controller: controller,
-                decoration: const InputDecoration(hintText: "Type note"),
+                decoration: const InputDecoration(
+                  hintText: "Type a note",
+                  border: OutlineInputBorder(),
+                ),
               ),
             ),
-            IconButton(
-              icon: const Icon(Icons.add),
+            const SizedBox(width: 8),
+            ElevatedButton(
               onPressed: () async {
                 if (controller.text.isNotEmpty) {
-                  notesBox.add(controller.text);
+                  notesBox.add(
+                    Note(
+                      title: controller.text,
+                      content: controller.text,
+                      created: DateTime.now(),
+                    ),
+                  );
                   controller.clear();
                   await saveNotes();
                 }
               },
+              child: const Text("Add"),
             ),
           ],
         ),
